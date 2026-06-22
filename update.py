@@ -74,14 +74,26 @@ def detect_browsers() -> list[str]:
     return [b for b in core.BROWSERS if any(r.exists() for r in core.profile_roots(b))]
 
 
-def update_one(browser: str, profile_override: str | None, do_backup: bool, dry_run: bool) -> None:
+def update_one(
+    browser: str,
+    profile_override: str | None,
+    do_backup: bool,
+    dry_run: bool,
+    strip_comments: bool = False,
+) -> None:
     core.step(f"{browser}: fetching latest from {core.VOIDFOX_OWNER}/{core.VOIDFOX_REPO}")
     with tempfile.TemporaryDirectory(prefix="voidfox-") as tmp:
         tmp_dir = Path(tmp)
         _download_sources(browser, tmp_dir)
         content = core.build_user_js(tmp_dir, browser)
+        if strip_comments:
+            content = core.strip_comments(content)
         ver = core.betterfox_version(tmp_dir)
-        core.info(f"Betterfox base version: {ver or 'unknown'}")
+        lines = len(content.splitlines())
+        core.info(
+            f"Betterfox base version: {ver or 'unknown'}  "
+            f"({lines} lines{'  [comments stripped]' if strip_comments else ''})"
+        )
 
         profile = core.default_profile_dir(browser, profile_override)
         core.info(f"Profile: {profile}")
@@ -114,7 +126,8 @@ def run_update(args) -> int:
     ok = True
     for browser in targets:
         try:
-            update_one(browser, args.profile_dir, not args.no_backup, args.dry_run)
+            update_one(browser, args.profile_dir, not args.no_backup, args.dry_run,
+                       getattr(args, "strip_comments", False))
         except Exception as exc:
             ok = False
             core.warn(f"{browser}: {exc}")
@@ -282,6 +295,10 @@ def main() -> int:
     ap.add_argument("--profile-dir", "-p", default=None, help="Target a specific profile directory.")
     ap.add_argument("--no-backup", "-nb", action="store_true")
     ap.add_argument("--dry-run", "-n", action="store_true")
+    ap.add_argument("--strip-comments", action="store_true",
+                    help="Remove all JS comments from the generated user.js. "
+                         "Comments have zero effect on Firefox; stripping gives "
+                         "a compact prefs-only file.")
     ap.add_argument(
         "--service",
         choices=["install", "uninstall", "status"],

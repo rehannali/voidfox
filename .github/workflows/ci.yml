@@ -131,6 +131,12 @@ jobs:
       - name: Diagnose
         run: python install.py --diagnose
 
+      - name: Preview merged user.js (full output visible in Actions log)
+        run: python install.py --browser firefox --preview
+
+      - name: Preview stripped version (prefs only, no comments)
+        run: python install.py --browser firefox --preview --strip-comments
+
       - name: Run install.py
         run: python install.py --browser firefox --no-backup
 
@@ -253,6 +259,9 @@ jobs:
 
       - name: Diagnose
         run: python install.py --diagnose
+
+      - name: Preview merged Zen user.js
+        run: python install.py --browser zen --preview
 
       - name: Run install.py
         run: python install.py --browser zen --no-backup

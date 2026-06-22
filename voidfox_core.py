@@ -385,6 +385,52 @@ def build_user_js(source_dir: Path, browser: str) -> str:
     return "\n".join(parts) + "\n"
 
 
+def strip_comments(content: str) -> str:
+    """Remove all JS comments from a user.js string.
+
+    Strips:
+    - Full-line ``//`` comments
+    - Block comment lines (``/* ... */`` spanning multiple lines)
+    - Inline trailing ``// comments`` that appear after a closing ``);``
+
+    Safe with URLs inside strings (e.g. ``"https://example.com"``) because
+    inline comment removal only triggers *after* the ``);`` that ends every
+    ``user_pref()`` call — the URL is inside the call, before the ``);``.
+
+    Collapses runs of blank lines to at most one blank line so the result
+    stays readable.
+    """
+    import re
+
+    out: list[str] = []
+    in_block = False
+
+    for line in content.splitlines():
+        stripped = line.lstrip()
+
+        if in_block:
+            if "*/" in line:
+                in_block = False
+            continue                     # skip every line inside a block comment
+
+        if stripped.startswith("/*"):
+            if "*/" not in line:         # opening line of a multi-line block comment
+                in_block = True
+            continue                     # skip this line (single or multi start)
+
+        if stripped.startswith("//"):
+            continue                     # skip full-line // comment
+
+        # Remove trailing inline comment after ); — safe: URL is before );
+        line = re.sub(r"\);\s*//[^\n]*", ");", line)
+
+        out.append(line)
+
+    # Collapse 3+ consecutive blank lines → 1
+    result = re.sub(r"\n{3,}", "\n\n", "\n".join(out))
+    return result.strip() + "\n"
+
+
 # --------------------------------------------------------------------------- #
 # Installation primitives
 # --------------------------------------------------------------------------- #
