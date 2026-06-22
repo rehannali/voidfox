@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+.AppleDouble
+.Spotlight-V100
+.Trashes
+
+# Backup files from arkenfox/betterfox automation
+*.bak
+*.orig
+
+# Downloaded upstream sources (fetched at build time)
+arkenfox-user.js
+betterfox-user.js
+
+# Logs from update scripts
+*.log
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
