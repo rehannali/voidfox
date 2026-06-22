@@ -4,15 +4,23 @@
 .Spotlight-V100
 .Trashes
 
-# Backup files from arkenfox/betterfox automation
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Generated / local build artifacts
+build/
+dist/
 *.bak
 *.orig
 
-# Downloaded upstream sources (fetched at build time)
-arkenfox-user.js
-betterfox-user.js
+# Backups created by install.py / update.py in browser profiles
+# (these live in the profile, but ignore them if ever copied into the repo)
+user.js.voidfox-backup-*
 
-# Logs from update scripts
+# Logs from the update scripts / background service
 *.log
 
 # Editor
@@ -20,3 +28,6 @@ betterfox-user.js
 .idea/
 *.swp
 *.swo
+
+# NOTE: ./upstream is intentionally NOT ignored - the GitHub Action commits the
+# synced Betterfox files there, and install.py reads them from the checkout.
