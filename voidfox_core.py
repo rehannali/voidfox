@@ -105,8 +105,9 @@ def profile_roots(browser: str) -> list[Path]:
         if sys.platform == "darwin":
             return [home / "Library/Application Support/zen"]
         return [
-            home / ".zen",                                                   # native
-            home / ".var/app/app.zen_browser.zen/.zen",                      # flatpak
+            home / ".zen",                                                   # native / tarball
+            home / ".var/app/app.zen_browser.zen/.zen",                      # flatpak (hidden)
+            home / ".var/app/app.zen_browser.zen/zen",                       # flatpak (some versions)
         ]
     raise ValueError(f"Unknown browser: {browser!r}")
 
