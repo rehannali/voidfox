@@ -1,0 +1,532 @@
+name: CI
+
+# Verifies the full pipeline on every push and pull request:
+#   1. All Python scripts compile cleanly.
+#   2. sync.py can fetch the latest Betterfox files.
+#   3. install.py installs Firefox into a real profile — Ubuntu, macOS, Windows.
+#   4. install.py installs Zen into a real profile — Ubuntu, macOS, Windows.
+#      Zen install methods per platform:
+#        macOS   — brew install --cask zen
+#        Linux   — tarball from latest GitHub release (zen.linux-x86_64.tar.xz)
+#        Windows — choco install zen-browser
+#   5. Firefox Linux / Snap  — installs Firefox via snap, verifies profile detection.
+#   6. Firefox Linux / Flatpak — creates Flatpak profile path, verifies detection.
+#      (No browser download; Flatpak installs are too large for CI. Detection
+#       logic only cares about profiles.ini existing at the right path.)
+#   7. Zen Linux / Flatpak — same approach; tests both .zen and zen path variants.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+
+  # ── 1. Syntax / import check ─────────────────────────────────────────────── #
+  syntax-check:
+    name: Syntax check (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile all scripts
+        run: python -m py_compile voidfox_core.py sync.py install.py update.py
+
+      - name: Smoke-test imports
+        run: python -c "import voidfox_core; print('core OK')"
+
+  # ── 2. Sync check ───────────────────────────────────────────────────────── #
+  test-sync:
+    name: sync.py
+    needs: syntax-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch latest Betterfox files
+        run: python sync.py
+
+      - name: Verify expected files exist
+        shell: python
+        run: |
+          from pathlib import Path
+          expected = [
+              "upstream/firefox/user.js",
+              "upstream/firefox/Fastfox.js",
+              "upstream/firefox/Securefox.js",
+              "upstream/firefox/Peskyfox.js",
+              "upstream/firefox/Smoothfox.js",
+              "upstream/zen/user.js",
+              "upstream/sync-meta.json",
+          ]
+          missing = [f for f in expected if not Path(f).exists()]
+          if missing:
+              raise SystemExit(f"Missing files after sync: {missing}")
+          print(f"OK: all {len(expected)} upstream files present")
+
+      - name: Verify sync is idempotent
+        run: python sync.py --check
+
+  # ── 3. Firefox — Ubuntu / macOS / Windows ───────────────────────────────── #
+  test-firefox:
+    name: Firefox / ${{ matrix.os }}
+    needs: syntax-check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Firefox (Linux)
+        if: runner.os == 'Linux'
+        run: which firefox || { sudo apt-get update -q && sudo apt-get install -y firefox; }
+
+      - name: Install Firefox (macOS)
+        if: runner.os == 'macOS'
+        run: brew install --cask firefox
+
+      - name: Install Firefox (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install firefox --no-progress -y
+
+      - name: Sync upstream Betterfox files
+        run: python sync.py
+
+      - name: Create Firefox profile structure
+        shell: python
+        run: |
+          import os, pathlib, sys
+          home = pathlib.Path.home()
+          if sys.platform.startswith("win"):
+              root = pathlib.Path(os.environ["APPDATA"]) / "Mozilla/Firefox"
+          elif sys.platform == "darwin":
+              root = home / "Library/Application Support/Firefox"
+          else:
+              root = home / ".mozilla/firefox"
+          profile = root / "ci.default-release"
+          profile.mkdir(parents=True, exist_ok=True)
+          ini = (
+              "[Install1234ABCD]\nDefault=ci.default-release\nLocked=1\n\n"
+              "[Profile0]\nName=ci-test\nIsRelative=1\nPath=ci.default-release\nDefault=1\n"
+          )
+          (root / "profiles.ini").write_text(ini, encoding="utf-8")
+          print(f"Profile root: {root}")
+          print(f"Profile dir : {profile}")
+
+      - name: Diagnose
+        run: python install.py --diagnose
+
+      - name: Run install.py
+        run: python install.py --browser firefox --no-backup
+
+      - name: Verify user.js
+        shell: python
+        run: |
+          import os, pathlib, sys
+          home = pathlib.Path.home()
+          if sys.platform.startswith("win"):
+              root = pathlib.Path(os.environ["APPDATA"]) / "Mozilla/Firefox"
+          elif sys.platform == "darwin":
+              root = home / "Library/Application Support/Firefox"
+          else:
+              root = home / ".mozilla/firefox"
+          userjs = root / "ci.default-release/user.js"
+          if not userjs.exists():
+              raise SystemExit(f"FAIL: user.js not found at {userjs}")
+          content = userjs.read_text(encoding="utf-8")
+          checks = {
+              "Betterfox header"       : "Betterfox" in content,
+              "SECUREFOX section"      : "SECUREFOX" in content,
+              "PESKYFOX section"       : "PESKYFOX" in content,
+              "VOIDFOX OVERRIDES block": "VOIDFOX OVERRIDES" in content,
+              "overrides after upstream": content.index("VOIDFOX OVERRIDES") > content.index("END: BETTERFOX"),
+              "smooth scrolling"       : "smoothScroll" in content,
+          }
+          failed = [k for k, v in checks.items() if not v]
+          if failed:
+              raise SystemExit(f"FAIL: {failed}")
+          print(f"OK: {len(content.splitlines())} lines, all checks passed")
+
+  # ── 4. Zen — Ubuntu / macOS / Windows ───────────────────────────────────── #
+  test-zen:
+    name: Zen / ${{ matrix.os }}
+    needs: syntax-check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ── Install Zen ─────────────────────────────────────────────────────── #
+
+      - name: Install Zen (macOS)
+        if: runner.os == 'macOS'
+        # Official Homebrew cask: https://formulae.brew.sh/cask/zen
+        run: brew install --cask zen
+
+      - name: Install Zen (Linux — tarball)
+        if: runner.os == 'Linux'
+        # Official tarball from https://github.com/zen-browser/desktop/releases
+        # Profile for tarball installs lives at ~/.zen (same as the native path).
+        run: |
+          echo "Fetching latest Zen release URL..."
+          TARBALL_URL=$(python3 -c "
+          import urllib.request, json
+          req = urllib.request.Request(
+              'https://api.github.com/repos/zen-browser/desktop/releases/latest',
+              headers={'User-Agent': 'voidfox-ci'}
+          )
+          with urllib.request.urlopen(req) as r:
+              assets = json.loads(r.read())['assets']
+          url = next(a['browser_download_url'] for a in assets
+                     if a['name'] == 'zen.linux-x86_64.tar.xz')
+          print(url)
+          ")
+          echo "Downloading $TARBALL_URL"
+          mkdir -p "$HOME/.local/zen-browser"
+          curl -fsSL "$TARBALL_URL" | tar -xJ -C "$HOME/.local/zen-browser"
+          # Add the extracted binary directory to PATH so find_installed_app works.
+          # The tarball extracts to a 'zen/' subdirectory.
+          echo "$HOME/.local/zen-browser/zen" >> "$GITHUB_PATH"
+          echo "Zen installed to $HOME/.local/zen-browser/zen/"
+
+      - name: Install Zen (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        # Official Chocolatey package: https://community.chocolatey.org/packages/zen-browser
+        run: choco install zen-browser --no-progress -y
+
+      # ── Populate upstream/ ──────────────────────────────────────────────── #
+
+      - name: Sync upstream Betterfox files
+        run: python sync.py
+
+      # ── Create Zen profile structure ──────────────────────────────────────
+      # Zen does not create a profile until its first launch. We create the
+      # profiles.ini + profile directory manually — same layout as Zen uses
+      # after first run. No display or actual browser launch needed.
+
+      - name: Create Zen profile structure
+        shell: python
+        run: |
+          import os, pathlib, sys
+          home = pathlib.Path.home()
+          if sys.platform.startswith("win"):
+              # Zen on Windows stores profiles under %APPDATA%\zen
+              root = pathlib.Path(os.environ["APPDATA"]) / "zen"
+          elif sys.platform == "darwin":
+              root = home / "Library/Application Support/zen"
+          else:
+              # Tarball install: profile at ~/.zen  (same as native)
+              root = home / ".zen"
+          profile = root / "ci.default-release"
+          profile.mkdir(parents=True, exist_ok=True)
+          ini = (
+              "[Install1234ABCD]\nDefault=ci.default-release\nLocked=1\n\n"
+              "[Profile0]\nName=ci-test\nIsRelative=1\nPath=ci.default-release\nDefault=1\n"
+          )
+          (root / "profiles.ini").write_text(ini, encoding="utf-8")
+          print(f"Zen profile root: {root}")
+          print(f"Zen profile dir : {profile}")
+
+      - name: Diagnose
+        run: python install.py --diagnose
+
+      - name: Run install.py
+        run: python install.py --browser zen --no-backup
+
+      - name: Verify user.js
+        shell: python
+        run: |
+          import os, pathlib, sys
+          home = pathlib.Path.home()
+          if sys.platform.startswith("win"):
+              root = pathlib.Path(os.environ["APPDATA"]) / "zen"
+          elif sys.platform == "darwin":
+              root = home / "Library/Application Support/zen"
+          else:
+              root = home / ".zen"
+          userjs = root / "ci.default-release/user.js"
+          if not userjs.exists():
+              raise SystemExit(f"FAIL: user.js not found at {userjs}")
+          content = userjs.read_text(encoding="utf-8")
+          checks = {
+              "Betterfox header"        : "Betterfox" in content,
+              "VOIDFOX OVERRIDES block" : "VOIDFOX OVERRIDES" in content,
+              "Zen-specific content"    : "zen" in content.lower(),
+              "overrides after upstream": content.index("VOIDFOX OVERRIDES") > content.index("END: BETTERFOX"),
+              "smooth scrolling"        : "smoothScroll" in content,
+          }
+          failed = [k for k, v in checks.items() if not v]
+          if failed:
+              raise SystemExit(f"FAIL: {failed}")
+          print(f"OK: {len(content.splitlines())} lines, all checks passed")
+
+  # ── 5. Firefox / Linux / Snap ────────────────────────────────────────────── #
+  # Actually installs Firefox via snap (fast on ubuntu runners), then creates
+  # the snap profile structure and verifies voidfox detects it correctly.
+  # Key: ~/.mozilla/firefox does NOT exist here, so auto-detection is forced
+  # to pick ~/snap/firefox/common/.mozilla/firefox.
+  test-firefox-snap:
+    name: Firefox / Linux / Snap
+    needs: syntax-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Firefox via Snap
+        run: sudo snap install firefox
+
+      - name: Sync upstream Betterfox files
+        run: python sync.py
+
+      - name: Create Firefox Snap profile structure
+        shell: python
+        run: |
+          from pathlib import Path
+          # Snap Firefox profile root: ~/snap/firefox/common/.mozilla/firefox
+          root = Path.home() / "snap/firefox/common/.mozilla/firefox"
+          profile = root / "ci.default-release"
+          profile.mkdir(parents=True, exist_ok=True)
+          ini = (
+              "[Install1234ABCD]\nDefault=ci.default-release\nLocked=1\n\n"
+              "[Profile0]\nName=ci-test\nIsRelative=1\nPath=ci.default-release\nDefault=1\n"
+          )
+          (root / "profiles.ini").write_text(ini, encoding="utf-8")
+          print(f"Snap profile root: {root}")
+
+      - name: Diagnose (must show snap path)
+        run: python install.py --diagnose
+
+      - name: Run install.py (auto-detect → must pick Snap path)
+        run: python install.py --browser firefox --no-backup
+
+      - name: Verify user.js landed at Snap path
+        shell: python
+        run: |
+          from pathlib import Path
+          root   = Path.home() / "snap/firefox/common/.mozilla/firefox"
+          userjs = root / "ci.default-release/user.js"
+          native = Path.home() / ".mozilla/firefox/ci.default-release/user.js"
+
+          if native.exists():
+              raise SystemExit("FAIL: user.js written to native path instead of snap path")
+          if not userjs.exists():
+              raise SystemExit(f"FAIL: user.js not found at snap path: {userjs}")
+
+          content = userjs.read_text(encoding="utf-8")
+          checks = {
+              "Betterfox header"    : "Betterfox" in content,
+              "VOIDFOX OVERRIDES"   : "VOIDFOX OVERRIDES" in content,
+              "overrides after end" : content.index("VOIDFOX OVERRIDES") > content.index("END: BETTERFOX"),
+          }
+          failed = [k for k, v in checks.items() if not v]
+          if failed:
+              raise SystemExit(f"FAIL: {failed}")
+          print(f"OK: Snap user.js at correct path ({len(content.splitlines())} lines)")
+
+  # ── 6. Firefox / Linux / Flatpak ─────────────────────────────────────────── #
+  # Creates the Flatpak profile path without downloading the browser (a full
+  # Flatpak download would be hundreds of MB and slow CI down significantly).
+  # The detection logic only needs profiles.ini at the right path to work.
+  test-firefox-flatpak:
+    name: Firefox / Linux / Flatpak
+    needs: syntax-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync upstream Betterfox files
+        run: python sync.py
+
+      - name: Create Firefox Flatpak profile structure
+        shell: python
+        run: |
+          from pathlib import Path
+          # Flatpak Firefox profile root: ~/.var/app/org.mozilla.firefox/.mozilla/firefox
+          root = Path.home() / ".var/app/org.mozilla.firefox/.mozilla/firefox"
+          profile = root / "ci.default-release"
+          profile.mkdir(parents=True, exist_ok=True)
+          ini = (
+              "[Install1234ABCD]\nDefault=ci.default-release\nLocked=1\n\n"
+              "[Profile0]\nName=ci-test\nIsRelative=1\nPath=ci.default-release\nDefault=1\n"
+          )
+          (root / "profiles.ini").write_text(ini, encoding="utf-8")
+          print(f"Flatpak profile root: {root}")
+
+      - name: Diagnose (must show flatpak path)
+        run: python install.py --diagnose
+
+      - name: Run install.py (auto-detect → must pick Flatpak path)
+        run: python install.py --browser firefox --no-backup
+
+      - name: Verify user.js landed at Flatpak path
+        shell: python
+        run: |
+          from pathlib import Path
+          root   = Path.home() / ".var/app/org.mozilla.firefox/.mozilla/firefox"
+          userjs = root / "ci.default-release/user.js"
+          native = Path.home() / ".mozilla/firefox/ci.default-release/user.js"
+
+          if native.exists():
+              raise SystemExit("FAIL: user.js written to native path instead of flatpak path")
+          if not userjs.exists():
+              raise SystemExit(f"FAIL: user.js not found at flatpak path: {userjs}")
+
+          content = userjs.read_text(encoding="utf-8")
+          checks = {
+              "Betterfox header"    : "Betterfox" in content,
+              "VOIDFOX OVERRIDES"   : "VOIDFOX OVERRIDES" in content,
+              "overrides after end" : content.index("VOIDFOX OVERRIDES") > content.index("END: BETTERFOX"),
+          }
+          failed = [k for k, v in checks.items() if not v]
+          if failed:
+              raise SystemExit(f"FAIL: {failed}")
+          print(f"OK: Flatpak user.js at correct path ({len(content.splitlines())} lines)")
+
+  # ── 7. Zen / Linux / Flatpak ─────────────────────────────────────────────── #
+  # Zen Flatpak uses one of two profile paths depending on the version:
+  #   ~/.var/app/app.zen_browser.zen/.zen   (hidden, older versions)
+  #   ~/.var/app/app.zen_browser.zen/zen    (non-hidden, newer versions)
+  # We run two sub-steps — one for each variant — to verify both are detected.
+  test-zen-flatpak:
+    name: Zen / Linux / Flatpak
+    needs: syntax-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync upstream Betterfox files
+        run: python sync.py
+
+      # ── Variant A: hidden path (.zen) ── #
+
+      - name: Create Zen Flatpak profile (.zen variant)
+        shell: python
+        run: |
+          from pathlib import Path
+          root = Path.home() / ".var/app/app.zen_browser.zen/.zen"
+          profile = root / "ci.default-release"
+          profile.mkdir(parents=True, exist_ok=True)
+          ini = (
+              "[Install1234ABCD]\nDefault=ci.default-release\nLocked=1\n\n"
+              "[Profile0]\nName=ci-test\nIsRelative=1\nPath=ci.default-release\nDefault=1\n"
+          )
+          (root / "profiles.ini").write_text(ini, encoding="utf-8")
+          print(f"Zen Flatpak (.zen) profile: {profile}")
+
+      - name: Diagnose (.zen variant)
+        run: python install.py --diagnose
+
+      - name: Run install.py (.zen variant)
+        run: python install.py --browser zen --no-backup
+
+      - name: Verify user.js (.zen variant)
+        shell: python
+        run: |
+          from pathlib import Path
+          root   = Path.home() / ".var/app/app.zen_browser.zen/.zen"
+          userjs = root / "ci.default-release/user.js"
+          if not userjs.exists():
+              raise SystemExit(f"FAIL (.zen): user.js not found at {userjs}")
+          content = userjs.read_text(encoding="utf-8")
+          if "VOIDFOX OVERRIDES" not in content:
+              raise SystemExit("FAIL (.zen): VOIDFOX OVERRIDES marker missing")
+          print(f"OK (.zen): {len(content.splitlines())} lines")
+
+      - name: Remove .zen profile (reset for next variant)
+        run: rm -rf "$HOME/.var/app/app.zen_browser.zen/.zen"
+
+      # ── Variant B: non-hidden path (zen) ── #
+
+      - name: Create Zen Flatpak profile (zen variant)
+        shell: python
+        run: |
+          from pathlib import Path
+          root = Path.home() / ".var/app/app.zen_browser.zen/zen"
+          profile = root / "ci.default-release"
+          profile.mkdir(parents=True, exist_ok=True)
+          ini = (
+              "[Install1234ABCD]\nDefault=ci.default-release\nLocked=1\n\n"
+              "[Profile0]\nName=ci-test\nIsRelative=1\nPath=ci.default-release\nDefault=1\n"
+          )
+          (root / "profiles.ini").write_text(ini, encoding="utf-8")
+          print(f"Zen Flatpak (zen) profile: {profile}")
+
+      - name: Diagnose (zen variant)
+        run: python install.py --diagnose
+
+      - name: Run install.py (zen variant)
+        run: python install.py --browser zen --no-backup
+
+      - name: Verify user.js (zen variant)
+        shell: python
+        run: |
+          from pathlib import Path
+          root   = Path.home() / ".var/app/app.zen_browser.zen/zen"
+          userjs = root / "ci.default-release/user.js"
+          if not userjs.exists():
+              raise SystemExit(f"FAIL (zen): user.js not found at {userjs}")
+          content = userjs.read_text(encoding="utf-8")
+          if "VOIDFOX OVERRIDES" not in content:
+              raise SystemExit("FAIL (zen): VOIDFOX OVERRIDES marker missing")
+          print(f"OK (zen): {len(content.splitlines())} lines")
+
+  # ── 8. Summary gate ──────────────────────────────────────────────────────── #
+  # Reference THIS job in branch protection rules — it covers everything.
+  all-checks:
+    name: All checks passed
+    needs:
+      - syntax-check
+      - test-sync
+      - test-firefox
+      - test-zen
+      - test-firefox-snap
+      - test-firefox-flatpak
+      - test-zen-flatpak
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Gate
+        run: |
+          results='${{ toJSON(needs) }}'
+          echo "Job results: $results"
+          if echo "$results" | grep -q '"result": "failure"'; then
+            echo "One or more jobs failed."
+            exit 1
+          fi
+          echo "All jobs passed."
