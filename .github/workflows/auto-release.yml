@@ -1,0 +1,102 @@
+name: Auto Release (monthly)
+
+# Runs on the first of every month at 10:00 UTC and on manual dispatch.
+# If there are commits since the last tag, picks a CalVer tag (vYYYY.M.PATCH),
+# pushes it, and creates a GitHub Release — all in one job, because a
+# GITHUB_TOKEN tag push does not re-trigger the release.yml workflow.
+# Quiet months (no new commits) skip the release silently.
+
+on:
+  schedule:
+    - cron: "0 10 1 * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  auto-release:
+    name: Monthly CalVer release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check for commits since last tag
+        id: check
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            echo "has_changes=true"  >> "$GITHUB_OUTPUT"
+          else
+            COUNT=$(git log "${LAST_TAG}..HEAD" --oneline | wc -l | tr -d ' ')
+            if [ "$COUNT" -gt 0 ]; then
+              echo "has_changes=true"  >> "$GITHUB_OUTPUT"
+            else
+              echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Pick CalVer tag
+        if: steps.check.outputs.has_changes == 'true'
+        id: tag
+        run: |
+          TAG=$(python3 -c "
+          import subprocess
+          from datetime import date
+          t = date.today()
+          base = f'v{t.year}.{t.month}'
+          patch = 0
+          while True:
+              tag = f'{base}.{patch}'
+              r = subprocess.run(['git', 'rev-parse', tag], capture_output=True)
+              if r.returncode != 0:
+                  print(tag)
+                  break
+              patch += 1
+          ")
+          echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.tag.outputs.TAG }}"
+          git push origin "${{ steps.tag.outputs.TAG }}"
+
+      - name: Read Betterfox version
+        if: steps.check.outputs.has_changes == 'true'
+        id: meta
+        run: |
+          BF_VER=$(python3 -c "
+          import json
+          m = json.load(open('upstream/sync-meta.json'))
+          print(m.get('betterfox_version') or 'unknown')
+          ")
+          echo "bf_version=$BF_VER" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          python3 .github/scripts/gen_release_notes.py "${{ steps.tag.outputs.TAG }}" \
+            > release-notes.md
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          gh release create "${{ steps.tag.outputs.TAG }}" \
+            --title "voidfox ${{ steps.tag.outputs.TAG }} — Betterfox ${{ steps.meta.outputs.bf_version }}" \
+            --notes-file release-notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Nothing to release
+        if: steps.check.outputs.has_changes != 'true'
+        run: echo "No commits since last tag — skipping release."

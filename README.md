@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/rehannali/voidfox/actions/workflows/ci.yml/badge.svg)](https://github.com/rehannali/voidfox/actions/workflows/ci.yml)
 [![Sync Betterfox](https://github.com/rehannali/voidfox/actions/workflows/sync-betterfox.yml/badge.svg)](https://github.com/rehannali/voidfox/actions/workflows/sync-betterfox.yml)
+[![Latest Release](https://img.shields.io/github/v/release/rehannali/voidfox)](https://github.com/rehannali/voidfox/releases)
 
 **voidfox** is a thin, personal layer on top of [**Betterfox**](https://github.com/yokoffing/Betterfox).
 It keeps a fresh copy of Betterfox's hardened `user.js` automatically, lets me
@@ -80,7 +81,9 @@ voidfox/
 ├── .github/
 │   ├── workflows/
 │   │   ├── sync-betterfox.yml    # daily upstream sync Action
-│   │   └── ci.yml                # CI: install + verify on every push
+│   │   ├── ci.yml                # CI: install + verify on every push
+│   │   ├── release.yml           # create GitHub Release on manual tag push
+│   │   └── auto-release.yml      # monthly CalVer release (first of month)
 │   └── ISSUE_TEMPLATE/           # bug report template (adapted from Betterfox)
 └── LICENSE                       # MIT, with Betterfox attribution
 ```
@@ -321,6 +324,38 @@ Run the sync locally any time:
 python sync.py            # write the latest Betterfox files into upstream/
 python sync.py --check    # exit 1 if upstream differs, no writes ("anything changed?")
 ```
+
+---
+
+## Releases
+
+voidfox uses **CalVer** tags in the form `vYYYY.M.PATCH` (e.g., `v2026.6.0`). Each
+release is a versioned snapshot of `upstream/` (the synced Betterfox files) and
+`overrides/`, so you can pin to a known-good state and read a clean changelog of what
+changed between Betterfox syncs and your own overrides.
+
+### Automatic monthly releases
+
+`.github/workflows/auto-release.yml` runs on the first of every month. If there are any
+commits since the last tag it picks the next CalVer tag, pushes it, and creates a GitHub
+Release with categorised release notes (voidfox changes vs. Betterfox syncs). Quiet
+months produce no release.
+
+### Manual release
+
+To cut a release at any time:
+
+```bash
+git tag v2026.6.1     # patch increments if a tag already exists for this month
+git push origin v2026.6.1
+```
+
+The **Release** workflow (`release.yml`) fires on every `v*` tag push. It reads the
+Betterfox version from `upstream/sync-meta.json`, pulls the commit log since the
+previous tag, separates Betterfox sync commits from voidfox changes, and publishes a
+GitHub Release with those notes as the body. No extra tokens or secrets are needed —
+the built-in `GITHUB_TOKEN` is sufficient (requires the same **Read and write** workflow
+permission as the sync Action).
 
 ---
 

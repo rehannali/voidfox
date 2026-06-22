@@ -1,0 +1,50 @@
+name: Release
+
+# Fires when you push a version tag: git tag v2026.6.0 && git push origin v2026.6.0
+# The auto-release.yml workflow creates its own release directly (GITHUB_TOKEN
+# tag pushes don't re-trigger this workflow), so this one is for manual releases.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history to find the previous tag
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Read Betterfox version
+        id: meta
+        run: |
+          BF_VER=$(python3 -c "
+          import json
+          m = json.load(open('upstream/sync-meta.json'))
+          print(m.get('betterfox_version') or 'unknown')
+          ")
+          echo "bf_version=$BF_VER" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        run: |
+          python3 .github/scripts/gen_release_notes.py "${{ github.ref_name }}" \
+            > release-notes.md
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "voidfox ${{ github.ref_name }} — Betterfox ${{ steps.meta.outputs.bf_version }}" \
+            --notes-file release-notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
