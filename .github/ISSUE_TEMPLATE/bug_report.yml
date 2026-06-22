@@ -1,0 +1,126 @@
+name: Bug Report
+description: Report a problem with voidfox (the installer, the sync, or a pref)
+labels: ["bug"]
+assignees: rehannali
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a report! voidfox builds on **Betterfox** as its source.
+        Before submitting, please figure out *where* the bug lives:
+
+        * **A specific Firefox/Zen pref breaks a site** and the same break happens with a
+          plain Betterfox `user.js` (no voidfox overrides) → that is an upstream pref and
+          belongs at https://github.com/yokoffing/Betterfox/issues
+        * **The installer, updater, sync, or merge misbehaves**, or one of *your overrides*
+          causes the issue → that is a voidfox bug; file it here.
+
+        Troubleshooting to try first (test after each step):
+        * Launch the browser in [Troubleshoot Mode](https://support.mozilla.org/en-US/kb/diagnose-firefox-issues-using-troubleshoot-mode).
+        * Disable DNS-level content blocking (AdGuard Home, NextDNS, Pi-hole, etc.) and [clear the DNS cache](https://www.pcmag.com/how-to/how-to-flush-your-dns-cache).
+        * [Clear website data](https://support.mozilla.org/en-US/kb/clear-cookies-and-site-data-firefox) and restart the browser.
+        * Create a [new clean profile](https://support.mozilla.org/en-US/kb/profile-manager-create-remove-switch-firefox-profiles) and test there.
+
+  - type: checkboxes
+    attributes:
+      label: Prerequisites
+      options:
+        - label: I am running the latest voidfox build (re-ran install.py or update.py).
+          required: true
+        - label: The issue reproduces on a clean profile with the generated user.js, not just my own custom-modified profile.
+          required: true
+        - label: I checked whether this is actually an upstream Betterfox pref issue (see above) and it is not - it is a voidfox / overrides / tooling issue.
+          required: true
+        - label: The issue persists in Troubleshoot Mode and after clearing site/DNS data.
+          required: true
+
+  - type: dropdown
+    attributes:
+      label: Area
+      description: Which part of voidfox is affected?
+      options:
+        - install.py (installing into a profile)
+        - update.py (updating / background service)
+        - sync.py or the GitHub Action (upstream sync)
+        - overrides (common.js / firefox.js / zen.js)
+        - A specific browser pref / behavior
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Bug description
+      description: Describe the issue.
+      placeholder: When I run `python install.py` on ...
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `...`
+        2. Open `...`
+        3. Observe `...`
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Expected behavior
+      placeholder: voidfox should do [this]. Instead it did [that].
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Console / script output
+      description: Paste the full output of the script, or the browser console error.
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    attributes:
+      label: Operating System (OS)
+      options:
+        - Windows (10 or later)
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: Browser
+      options:
+        - Firefox
+        - Zen Browser
+        - Both
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Browser version
+      placeholder: e.g. Firefox 139, or Zen 1.x
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: Python version
+      placeholder: e.g. 3.12.2 (output of `python --version`)
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Additional information
+    validations:
+      required: false

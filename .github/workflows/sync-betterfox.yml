@@ -1,0 +1,46 @@
+name: Sync Betterfox
+
+# Keeps ./upstream in lockstep with Betterfox. Runs sync.py, and commits ONLY
+# when a file actually changed - so the history shows a clean "upstream bumped"
+# trail and nothing happens on quiet days.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"        # daily at 06:00 UTC
+  workflow_dispatch: {}         # allow manual runs from the Actions tab
+
+permissions:
+  contents: write               # needed to push the sync commit
+
+concurrency:
+  group: sync-betterfox
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync upstream Betterfox files
+        run: python sync.py
+
+      - name: Commit if changed
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            VERSION="$(python -c 'import voidfox_core as c; print(c.betterfox_version() or "unknown")')"
+            git commit -m "chore(upstream): sync Betterfox (version ${VERSION})"
+            git push
+            echo "Pushed an upstream sync commit."
+          else
+            echo "No upstream changes. Nothing to commit."
+          fi
