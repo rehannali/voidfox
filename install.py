@@ -84,7 +84,13 @@ def main() -> int:
     )
     ap.add_argument("--no-backup", "-nb", action="store_true", help="Do not back up the existing user.js.")
     ap.add_argument("--dry-run", "-n", action="store_true", help="Show what would happen; write nothing.")
+    ap.add_argument("--diagnose", action="store_true",
+                    help="Print detected app + profile locations for each browser and exit.")
     args = ap.parse_args()
+
+    if args.diagnose:
+        core.diagnose()
+        return 0
 
     source_dir = core.repo_root()
 

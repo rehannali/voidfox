@@ -128,13 +128,26 @@ By default the existing `user.js` is copied to
 `user.js.voidfox-backup-<timestamp>` before being replaced.
 
 voidfox finds the default profile by reading `profiles.ini` in the standard
-location for your OS:
+location for your OS. The profile path follows each OS's app-data convention
+and **does not depend on where the application is installed** — on macOS the
+profile lives under `~/Library/Application Support` whether the `.app` is in
+`/Applications` or `~/Applications`. The variation that matters is packaging
+(native vs Flatpak vs Snap), which voidfox covers:
 
 | | Firefox | Zen |
 |---|---|---|
-| **Windows** | `%APPDATA%\Mozilla\Firefox` | `%APPDATA%\zen` |
+| **Windows** | `%APPDATA%\Mozilla\Firefox` | `%APPDATA%\zen`, `%LOCALAPPDATA%\zen` |
 | **macOS** | `~/Library/Application Support/Firefox` | `~/Library/Application Support/zen` |
-| **Linux** | `~/.mozilla/firefox` (+ Flatpak) | `~/.zen` (+ Flatpak) |
+| **Linux (native)** | `~/.mozilla/firefox` | `~/.zen` |
+| **Linux (Flatpak)** | `~/.var/app/org.mozilla.firefox/.mozilla/firefox` | `~/.var/app/app.zen_browser.zen/.zen` |
+| **Linux (Snap)** | `~/snap/firefox/common/.mozilla/firefox` | — |
+
+If you have more than one (e.g. native + Flatpak), voidfox prefers the root
+that actually contains `profiles.ini`. Not sure what it'll pick? Ask it:
+
+```bash
+python install.py --diagnose    # prints detected app + profile locations, writes nothing
+```
 
 ---
 

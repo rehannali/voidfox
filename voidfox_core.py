@@ -74,8 +74,20 @@ def _appdata() -> Path:
     return Path(os.getenv("APPDATA") or Path.home() / "AppData/Roaming")
 
 
+def _localappdata() -> Path:
+    return Path(os.getenv("LOCALAPPDATA") or Path.home() / "AppData/Local")
+
+
 def profile_roots(browser: str) -> list[Path]:
-    """Candidate profile-root directories for *browser* on this platform."""
+    """Candidate profile-ROOT directories for *browser* on this platform.
+
+    NOTE: the profile location follows each OS's app-data convention and does
+    NOT depend on where the application is installed. On macOS it is always
+    under ~/Library/Application Support regardless of whether the .app sits in
+    /Applications or ~/Applications. The variation that *does* matter is the
+    packaging format (native vs Flatpak vs Snap), which is what the extra
+    entries below cover.
+    """
     home = Path.home()
     if browser == "firefox":
         if sys.platform.startswith("win"):
@@ -83,19 +95,83 @@ def profile_roots(browser: str) -> list[Path]:
         if sys.platform == "darwin":
             return [home / "Library/Application Support/Firefox"]
         return [
-            home / ".mozilla/firefox",
-            home / ".var/app/org.mozilla.firefox/.mozilla/firefox",  # flatpak
+            home / ".mozilla/firefox",                                       # native
+            home / ".var/app/org.mozilla.firefox/.mozilla/firefox",          # flatpak
+            home / "snap/firefox/common/.mozilla/firefox",                   # snap
         ]
     if browser == "zen":
         if sys.platform.startswith("win"):
-            return [_appdata() / "zen"]
+            return [_appdata() / "zen", _localappdata() / "zen"]
         if sys.platform == "darwin":
             return [home / "Library/Application Support/zen"]
         return [
-            home / ".zen",
-            home / ".var/app/app.zen_browser.zen/.zen",  # flatpak
+            home / ".zen",                                                   # native
+            home / ".var/app/app.zen_browser.zen/.zen",                      # flatpak
         ]
     raise ValueError(f"Unknown browser: {browser!r}")
+
+
+def app_locations(browser: str) -> list[Path]:
+    """Candidate application binary / bundle locations for *browser*.
+
+    Used only for friendlier diagnostics ("installed but never launched") and
+    `--diagnose`. The profile path above is what voidfox actually writes to;
+    this is purely informational. macOS deliberately includes BOTH the
+    system-wide /Applications and the per-user ~/Applications.
+    """
+    home = Path.home()
+    if browser == "firefox":
+        if sys.platform.startswith("win"):
+            pf = Path(os.getenv("ProgramFiles") or "C:/Program Files")
+            pf86 = Path(os.getenv("ProgramFiles(x86)") or "C:/Program Files (x86)")
+            return [
+                pf / "Mozilla Firefox/firefox.exe",
+                pf86 / "Mozilla Firefox/firefox.exe",
+                _localappdata() / "Mozilla Firefox/firefox.exe",
+            ]
+        if sys.platform == "darwin":
+            return [
+                Path("/Applications/Firefox.app"),
+                home / "Applications/Firefox.app",
+            ]
+        return _which("firefox") + [
+            Path("/usr/lib/firefox/firefox"),
+            Path("/var/lib/flatpak/exports/bin/org.mozilla.firefox"),
+            home / ".local/share/flatpak/exports/bin/org.mozilla.firefox",
+            Path("/snap/bin/firefox"),
+        ]
+    if browser == "zen":
+        if sys.platform.startswith("win"):
+            pf = Path(os.getenv("ProgramFiles") or "C:/Program Files")
+            return [
+                _localappdata() / "zen/zen.exe",
+                pf / "Zen Browser/zen.exe",
+            ]
+        if sys.platform == "darwin":
+            return [
+                Path("/Applications/Zen.app"),
+                Path("/Applications/Zen Browser.app"),
+                home / "Applications/Zen.app",
+                home / "Applications/Zen Browser.app",
+            ]
+        return _which("zen") + [
+            Path("/var/lib/flatpak/exports/bin/app.zen_browser.zen"),
+            home / ".local/share/flatpak/exports/bin/app.zen_browser.zen",
+        ]
+    raise ValueError(f"Unknown browser: {browser!r}")
+
+
+def _which(name: str) -> list[Path]:
+    found = shutil.which(name)
+    return [Path(found)] if found else []
+
+
+def find_installed_app(browser: str) -> Path | None:
+    """First existing application location for *browser*, or None."""
+    for loc in app_locations(browser):
+        if loc.exists():
+            return loc
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -144,13 +220,33 @@ def voidfox_raw_url(repo_path: str) -> str:
 # --------------------------------------------------------------------------- #
 
 def find_profile_root(browser: str) -> Path:
-    for root in profile_roots(browser):
-        if root.exists():
+    """Best profile root for *browser*.
+
+    A machine may have more than one (e.g. native + Flatpak). Prefer a root
+    that actually contains profiles.ini, then one that has any profile dir,
+    then just the first that exists.
+    """
+    existing = [r for r in profile_roots(browser) if r.exists()]
+    for root in existing:
+        if (root / "profiles.ini").exists():
             return root
+    for root in existing:
+        if any(c.is_dir() for c in root.glob("*")):
+            return root
+    if existing:
+        return existing[0]
+
+    app = find_installed_app(browser)
+    hint = (
+        f"\n  {browser.title()} appears to be installed at {app}, but it has no "
+        f"profile yet — launch it once, then re-run."
+        if app
+        else f"\n  Is {browser.title()} installed and has it been launched at least once?"
+    )
     raise FileNotFoundError(
         f"Could not find a {browser} profile root. Looked in:\n"
         + "\n".join(f"    {p}" for p in profile_roots(browser))
-        + "\n  Is the browser installed and has it been launched at least once?"
+        + hint
     )
 
 
@@ -212,6 +308,24 @@ def _resolve_profile_path(root: Path, cp: ConfigParser, rel: str) -> Path:
     if candidate.is_absolute():
         return candidate
     return root / rel
+
+
+def diagnose(browsers=BROWSERS) -> None:
+    """Print what voidfox detects on this machine for each browser."""
+    step(f"Platform: {sys.platform}")
+    for browser in browsers:
+        step(browser)
+        app = find_installed_app(browser)
+        info(f"app: {app}" if app else "app: not found (checked "
+             f"{', '.join(str(p) for p in app_locations(browser))})")
+        for root in profile_roots(browser):
+            mark = "✓" if root.exists() else "·"
+            ini = " (has profiles.ini)" if (root / "profiles.ini").exists() else ""
+            info(f"[{mark}] root: {root}{ini}")
+        try:
+            info(f"=> default profile: {default_profile_dir(browser)}")
+        except Exception as exc:
+            warn(str(exc).splitlines()[0])
 
 
 # --------------------------------------------------------------------------- #
