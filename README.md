@@ -2,6 +2,9 @@
 
 > Firefox, but with everything unnecessary stripped into the void.
 
+[![CI](https://github.com/rehannali/voidfox/actions/workflows/ci.yml/badge.svg)](https://github.com/rehannali/voidfox/actions/workflows/ci.yml)
+[![Sync Betterfox](https://github.com/rehannali/voidfox/actions/workflows/sync-betterfox.yml/badge.svg)](https://github.com/rehannali/voidfox/actions/workflows/sync-betterfox.yml)
+
 **voidfox** is a thin, personal layer on top of [**Betterfox**](https://github.com/yokoffing/Betterfox).
 It keeps a fresh copy of Betterfox's hardened `user.js` automatically, lets me
 keep *my* tweaks in one tidy place, and ships cross-platform Python scripts that
