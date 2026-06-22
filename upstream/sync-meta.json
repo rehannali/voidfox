@@ -1,0 +1,14 @@
+{
+  "source": "yokoffing/Betterfox",
+  "branch": "main",
+  "betterfox_version": "150",
+  "synced_at_utc": "2026-06-22T19:39:44Z",
+  "files": [
+    "upstream/firefox/Fastfox.js",
+    "upstream/firefox/Peskyfox.js",
+    "upstream/firefox/Securefox.js",
+    "upstream/firefox/Smoothfox.js",
+    "upstream/firefox/user.js",
+    "upstream/zen/user.js"
+  ]
+}
