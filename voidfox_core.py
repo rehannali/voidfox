@@ -320,7 +320,7 @@ def diagnose(browsers=BROWSERS) -> None:
         info(f"app: {app}" if app else "app: not found (checked "
              f"{', '.join(str(p) for p in app_locations(browser))})")
         for root in profile_roots(browser):
-            mark = "✓" if root.exists() else "·"
+            mark = "+" if root.exists() else "-"
             ini = " (has profiles.ini)" if (root / "profiles.ini").exists() else ""
             info(f"[{mark}] root: {root}{ini}")
         try:
