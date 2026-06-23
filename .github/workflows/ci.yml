@@ -8,7 +8,7 @@ name: CI
 #      Zen install methods per platform:
 #        macOS   — brew install --cask zen
 #        Linux   — tarball from latest GitHub release (zen.linux-x86_64.tar.xz)
-#        Windows — choco install zen-browser
+#        Windows — installer from GitHub releases API (zen.installer.exe)
 #   5. Firefox Linux / Snap  — installs Firefox via snap, verifies profile detection.
 #   6. Firefox Linux / Flatpak — creates Flatpak profile path, verifies detection.
 #      (No browser download; Flatpak installs are too large for CI. Detection
@@ -221,8 +221,17 @@ jobs:
       - name: Install Zen (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        # Official Chocolatey package: https://community.chocolatey.org/packages/zen-browser
-        run: choco install zen-browser --no-progress -y
+        run: |
+          $headers = @{ "User-Agent" = "voidfox-ci" }
+          $release = Invoke-RestMethod `
+            "https://api.github.com/repos/zen-browser/desktop/releases/latest" `
+            -Headers $headers
+          $asset = $release.assets | Where-Object { $_.name -eq "zen.installer.exe" } | Select-Object -First 1
+          if (-not $asset) { Write-Error "zen.installer.exe not found in release assets"; exit 1 }
+          $installer = "$env:TEMP\zen-installer.exe"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installer -UseBasicParsing
+          Start-Process -FilePath $installer -ArgumentList "/S" -Wait
+          Write-Host "Zen installed"
 
       # ── Populate upstream/ ──────────────────────────────────────────────── #
 
