@@ -9,8 +9,6 @@ on:
     - cron: "0 6 * * *"        # daily at 06:00 UTC
   workflow_dispatch: {}         # allow manual runs from the Actions tab
 
-permissions:
-  contents: write               # needed to push the sync commit
 
 concurrency:
   group: sync-betterfox
@@ -22,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.SYNC_PAT }}   
 
       - name: Set up Python
         uses: actions/setup-python@v5
