@@ -19,6 +19,9 @@ on:
   push:
   pull_request:
 
+env:
+  GITHUB_TOKEN: ${{ secrets.SYNC_PAT }}
+
 jobs:
 
   # ── 1. Syntax / import check ─────────────────────────────────────────────── #
@@ -199,10 +202,13 @@ jobs:
         run: |
           echo "Fetching latest Zen release URL..."
           TARBALL_URL=$(python3 -c "
-          import urllib.request, json
+          import os, urllib.request, json
+          headers = {'User-Agent': 'voidfox-ci'}
+          if os.environ.get('GITHUB_TOKEN'):
+              headers['Authorization'] = 'Bearer ' + os.environ['GITHUB_TOKEN']
           req = urllib.request.Request(
               'https://api.github.com/repos/zen-browser/desktop/releases/latest',
-              headers={'User-Agent': 'voidfox-ci'}
+              headers=headers
           )
           with urllib.request.urlopen(req) as r:
               assets = json.loads(r.read())['assets']
@@ -222,7 +228,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $headers = @{ "User-Agent" = "voidfox-ci" }
+          $headers = @{
+            "User-Agent"    = "voidfox-ci"
+            "Authorization" = "Bearer $env:GITHUB_TOKEN"
+          }
           $release = Invoke-RestMethod `
             "https://api.github.com/repos/zen-browser/desktop/releases/latest" `
             -Headers $headers

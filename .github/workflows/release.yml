@@ -1,7 +1,7 @@
 name: Release
 
 # Fires when you push a version tag: git tag v2026.6.0 && git push origin v2026.6.0
-# The auto-release.yml workflow creates its own release directly (GITHUB_TOKEN
+# The auto-release.yml workflow creates its own release directly (PAT-based
 # tag pushes don't re-trigger this workflow), so this one is for manual releases.
 
 on:

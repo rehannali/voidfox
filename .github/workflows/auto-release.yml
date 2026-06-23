@@ -3,7 +3,7 @@ name: Auto Release (monthly)
 # Runs on the first of every month at 10:00 UTC and on manual dispatch.
 # If there are commits since the last tag, picks a CalVer tag (vYYYY.M.PATCH),
 # pushes it, and creates a GitHub Release — all in one job, because a
-# GITHUB_TOKEN tag push does not re-trigger the release.yml workflow.
+# PAT-based tag push does not re-trigger the release.yml workflow.
 # Quiet months (no new commits) skip the release silently.
 
 on:
