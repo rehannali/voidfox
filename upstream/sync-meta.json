@@ -2,7 +2,7 @@
   "source": "yokoffing/Betterfox",
   "branch": "main",
   "betterfox_version": "150",
-  "synced_at_utc": "2026-06-24T08:52:00Z",
+  "synced_at_utc": "2026-06-25T08:46:18Z",
   "files": [
     "upstream/firefox/Fastfox.js",
     "upstream/firefox/Peskyfox.js",
